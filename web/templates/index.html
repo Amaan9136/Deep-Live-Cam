@@ -14,41 +14,132 @@
         <h1>LOCAL FACE SWAPPER</h1>
         <p class="sub">Deep-Live-Cam powered image and video face swapping.</p>
       </div>
-      <span id="gpuBadge" class="badge">Checking GPU…</span>
+      <div class="badges">
+        <span id="gpuBadge" class="badge">Checking GPU…</span>
+        <button id="modelsBadge" class="badge" type="button">Models…</button>
+      </div>
     </header>
-
+    <section id="modelsCard" class="card hidden">
+      <div class="result-head">
+        <h2>Models</h2>
+        <div class="actions">
+          <button id="downloadNeeded" class="ghost" type="button">Download required</button>
+          <button id="closeModels" class="ghost" type="button">Close</button>
+        </div>
+      </div>
+      <p id="modelsDir" class="meta"></p>
+      <div id="modelsList" class="models"></div>
+      <details class="manual">
+        <summary>Manual download (PowerShell)</summary>
+        <p class="meta">Run this from the project folder if the automatic download is blocked. Files go to the models folder shown above.</p>
+        <pre id="manualCmd"></pre>
+        <button id="copyCmd" class="ghost" type="button">Copy commands</button>
+      </details>
+    </section>
     <section class="card">
       <div class="grid">
-        <label class="field">
-          <span>Source Face</span>
-          <input id="source" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
-        </label>
-
-        <div class="field">
+        <div class="field full">
           <span>Target Type</span>
           <div class="segmented">
             <button id="imageType" class="active" type="button">Image</button>
             <button id="videoType" type="button">Video</button>
           </div>
         </div>
-
-        <label class="field full">
+        <div class="field">
+          <span>Source Face</span>
+          <label id="sourceDrop" class="drop">
+            <input id="source" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
+            <div class="drop-hint"><strong>Click or drop a face photo</strong><small>JPG, PNG, WEBP, BMP</small></div>
+            <img id="sourcePreview" class="preview hidden" alt="Source preview">
+          </label>
+          <div class="meta-row"><span id="sourceMeta" class="meta"></span><button id="sourceClear" class="link hidden" type="button">Remove</button></div>
+        </div>
+        <div class="field">
           <span>Upload Target</span>
-          <input id="target" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
-        </label>
+          <label id="targetDrop" class="drop">
+            <input id="target" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
+            <div class="drop-hint"><strong id="targetHint">Click or drop a target image</strong><small id="targetFormats">JPG, PNG, WEBP, BMP</small></div>
+            <img id="targetImage" class="preview hidden" alt="Target preview">
+            <video id="targetVideo" class="preview hidden" controls muted playsinline></video>
+          </label>
+          <div class="meta-row"><span id="targetMeta" class="meta"></span><button id="targetClear" class="link hidden" type="button">Remove</button></div>
+        </div>
       </div>
-
+      <details class="options" open>
+        <summary>Options</summary>
+        <div class="presets">
+          <span>Presets</span>
+          <button type="button" class="ghost" data-preset="fast">Fast</button>
+          <button type="button" class="ghost" data-preset="balanced">Balanced</button>
+          <button type="button" class="ghost" data-preset="quality">Quality</button>
+          <button id="resetOptions" type="button" class="link">Reset</button>
+        </div>
+        <div class="opts">
+          <label class="check"><input id="optMany" type="checkbox"><span>Swap all faces<small>Replace every face in the target, not just one.</small></span></label>
+          <label class="check"><input id="optPoisson" type="checkbox"><span>Poisson blending<small>Smoother edges around the swapped face.</small></span></label>
+          <label class="opt"><span>Face enhancer</span>
+            <select id="optEnhancer">
+              <option value="none">None (fastest)</option>
+              <option value="gpen256">GPEN-256 (light)</option>
+              <option value="gpen512">GPEN-512 (balanced)</option>
+              <option value="gfpgan">GFPGAN (best detail, heavy)</option>
+            </select>
+          </label>
+          <label class="opt"><span>Swap strength <output id="optOpacityOut">100%</output></span><input id="optOpacity" type="range" min="10" max="100" step="5" value="100"></label>
+          <label class="opt"><span>Sharpness <output id="optSharpnessOut">0.0</output></span><input id="optSharpness" type="range" min="0" max="5" step="0.1" value="0"></label>
+          <label class="opt"><span>Keep original mouth <output id="optMouthOut">Off</output></span><input id="optMouth" type="range" min="0" max="100" step="5" value="0"></label>
+          <div class="video-only opt-group">
+            <label class="check"><input id="optKeepFps" type="checkbox" checked><span>Keep original FPS</span></label>
+            <label class="check"><input id="optKeepAudio" type="checkbox" checked><span>Keep original audio</span></label>
+            <label class="check"><input id="optSmooth" type="checkbox"><span>Temporal smoothing<small>Reduces flicker between frames.</small></span></label>
+            <label class="opt"><span>Smoothing weight <output id="optSmoothWeightOut">0.50</output></span><input id="optSmoothWeight" type="range" min="0.1" max="0.9" step="0.05" value="0.5"></label>
+            <label class="opt"><span>Video quality (CRF) <output id="optQualityOut">18</output></span><input id="optQuality" type="range" min="0" max="40" step="1" value="18"></label>
+            <label class="opt"><span>Worker threads <output id="optThreadsOut">2</output></span><input id="optThreads" type="range" min="1" max="8" step="1" value="2"></label>
+          </div>
+        </div>
+      </details>
       <button id="start" class="primary" type="button">START FACE SWAP</button>
+      <div id="progress" class="progress hidden">
+        <div class="bar"><i id="bar"></i></div>
+        <div class="progress-meta"><span id="progressText"></span><span id="timer"></span></div>
+      </div>
       <div id="status" class="status">Ready.</div>
+      <details id="logBox" class="log hidden">
+        <summary>Activity log</summary>
+        <ul id="logList"></ul>
+      </details>
     </section>
-
     <section id="resultCard" class="card result hidden">
       <div class="result-head">
         <h2>Result</h2>
-        <a id="download" class="download" href="#" download>Save Output</a>
+        <div class="actions">
+          <button id="reuse" class="ghost" type="button">Use as target</button>
+          <a id="openTab" class="download" href="#" target="_blank" rel="noopener">Open</a>
+          <a id="download" class="download" href="#" download>Save Output</a>
+        </div>
+      </div>
+      <div id="tabs" class="tabs hidden">
+        <button type="button" class="active" data-tab="result">Result</button>
+        <button type="button" data-tab="compare" id="compareTab">Compare</button>
+        <button type="button" data-tab="original">Original</button>
+        <button type="button" data-tab="source">Source</button>
       </div>
       <img id="imageResult" class="result-media hidden" alt="Generated face swap">
       <video id="videoResult" class="result-media hidden" controls playsinline></video>
+      <div id="compare" class="compare hidden">
+        <img id="compareBase" alt="Original target">
+        <img id="compareTop" alt="Face swap result">
+        <input id="compareRange" type="range" min="0" max="100" value="50">
+      </div>
+      <div id="resultInfo" class="meta"></div>
+    </section>
+    <section class="card">
+      <div class="result-head">
+        <h2>Recent outputs</h2>
+        <button id="refreshGallery" class="ghost" type="button">Refresh</button>
+      </div>
+      <div id="gallery" class="gallery"></div>
+      <p id="galleryEmpty" class="meta">No outputs yet.</p>
     </section>
   </main>
   <script src="/static/app.js"></script>
