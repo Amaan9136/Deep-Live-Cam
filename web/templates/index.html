@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LOCAL FACE SWAPPER</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <p class="eyebrow">100% LOCAL</p>
+        <h1>LOCAL FACE SWAPPER</h1>
+        <p class="sub">Deep-Live-Cam powered image and video face swapping.</p>
+      </div>
+      <span id="gpuBadge" class="badge">Checking GPU…</span>
+    </header>
+
+    <section class="card">
+      <div class="grid">
+        <label class="field">
+          <span>Source Face</span>
+          <input id="source" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
+        </label>
+
+        <div class="field">
+          <span>Target Type</span>
+          <div class="segmented">
+            <button id="imageType" class="active" type="button">Image</button>
+            <button id="videoType" type="button">Video</button>
+          </div>
+        </div>
+
+        <label class="field full">
+          <span>Upload Target</span>
+          <input id="target" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
+        </label>
+      </div>
+
+      <button id="start" class="primary" type="button">START FACE SWAP</button>
+      <div id="status" class="status">Ready.</div>
+    </section>
+
+    <section id="resultCard" class="card result hidden">
+      <div class="result-head">
+        <h2>Result</h2>
+        <a id="download" class="download" href="#" download>Save Output</a>
+      </div>
+      <img id="imageResult" class="result-media hidden" alt="Generated face swap">
+      <video id="videoResult" class="result-media hidden" controls playsinline></video>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
