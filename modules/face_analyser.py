@@ -107,6 +107,10 @@ def _is_dml() -> bool:
     return any("DmlExecutionProvider" in p for p in modules.globals.execution_providers)
 
 
+def _is_cuda() -> bool:
+    return any("CUDAExecutionProvider" in p for p in modules.globals.execution_providers)
+
+
 def _analyse_faces(frame: Frame) -> list:
     """Run face detection, then recognition (and optionally landmark).
 
@@ -145,6 +149,9 @@ def get_one_face(frame: Frame, faces: Any = None) -> Any:
         if _is_dml():
             with modules.globals.dml_lock:
                 faces = _analyse_faces(frame)
+        elif _is_cuda():
+            with modules.globals.cuda_graph_lock:
+                faces = _analyse_faces(frame)
         else:
             faces = _analyse_faces(frame)
     try:
@@ -157,6 +164,9 @@ def get_many_faces(frame: Frame) -> Any:
     try:
         if _is_dml():
             with modules.globals.dml_lock:
+                return _analyse_faces(frame)
+        elif _is_cuda():
+            with modules.globals.cuda_graph_lock:
                 return _analyse_faces(frame)
         else:
             return _analyse_faces(frame)
@@ -171,7 +181,11 @@ def detect_one_face_fast(frame: Frame) -> Any:
     """
     from insightface.app.common import Face
     fa = get_face_analyser()
-    bboxes, kpss = fa.det_model.detect(frame, max_num=0, metric='default')
+    if _is_cuda():
+        with modules.globals.cuda_graph_lock:
+            bboxes, kpss = fa.det_model.detect(frame, max_num=0, metric='default')
+    else:
+        bboxes, kpss = fa.det_model.detect(frame, max_num=0, metric='default')
     if bboxes.shape[0] == 0:
         return None
     idx = int(bboxes[:, 0].argmin())
@@ -182,7 +196,11 @@ def detect_many_faces_fast(frame: Frame) -> Any:
     """Detection-only multi-face — skips landmark and recognition."""
     from insightface.app.common import Face
     fa = get_face_analyser()
-    bboxes, kpss = fa.det_model.detect(frame, max_num=0, metric='default')
+    if _is_cuda():
+        with modules.globals.cuda_graph_lock:
+            bboxes, kpss = fa.det_model.detect(frame, max_num=0, metric='default')
+    else:
+        bboxes, kpss = fa.det_model.detect(frame, max_num=0, metric='default')
     if bboxes.shape[0] == 0:
         return None
     return [Face(bbox=bboxes[i, :4], kps=kpss[i], det_score=bboxes[i, 4])

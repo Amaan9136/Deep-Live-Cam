@@ -336,6 +336,17 @@ def models():
         "swapper_ready": swapper_ready,
         "analyser_ready": analyser_ready,
     }
+@app.delete("/api/models/{name:path}")
+def model_delete(name: str):
+    if name not in CATALOG:
+        raise HTTPException(404, f"Unknown model: {name}")
+    entry = CATALOG[name]
+    path = Path(_model_path(entry))
+    path.unlink(missing_ok=True)
+    Path(str(path) + ".part").unlink(missing_ok=True)
+    with lock:
+        downloads.pop(name, None)
+    return {"deleted": name}
 @app.post("/api/models/download")
 def models_download(request: DownloadRequest):
     entries = []
@@ -396,7 +407,7 @@ async def swap(
         "keep_fps": keep_fps,
         "keep_audio": keep_audio,
         "video_quality": int(_clamp(video_quality, 0, 51)),
-        "threads": int(_clamp(threads, 1, 8)),
+        "threads": int(_clamp(threads, 1, 32)),
     }
     job_id = uuid.uuid4().hex
     job_dir = UPLOAD_DIR / job_id

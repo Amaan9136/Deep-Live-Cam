@@ -161,7 +161,7 @@ def suggest_execution_threads() -> int:
     if 'ROCMExecutionProvider' in modules.globals.execution_providers:
         return 1
     if 'CUDAExecutionProvider' in modules.globals.execution_providers:
-        return 2
+        return max(4, min(cpu_count, 16))
     if 'OpenVINOExecutionProvider' in modules.globals.execution_providers:
         return 1
     

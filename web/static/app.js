@@ -27,7 +27,8 @@ const VIDEO_RE = /\.(mp4|mov|avi|mkv|webm)$/i;
 const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp,image/bmp';
 const VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm';
 const ENHANCER_MODELS = {gpen256: 'GPEN-BFR-256.onnx', gpen512: 'GPEN-BFR-512.onnx', gfpgan: 'gfpgan-1024.onnx'};
-const DEFAULTS = {many: false, poisson: false, enhancer: 'none', opacity: 100, sharpness: 0, mouth: 0, keepFps: true, keepAudio: true, smooth: false, smoothWeight: 0.5, quality: 18, threads: 2};
+const AUTO_THREADS = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 32));
+const DEFAULTS = {many: false, poisson: false, enhancer: 'none', opacity: 100, sharpness: 0, mouth: 0, keepFps: true, keepAudio: true, smooth: false, smoothWeight: 0.5, quality: 18, threads: AUTO_THREADS};
 const PRESETS = {fast: {...DEFAULTS, quality: 23}, balanced: DEFAULTS, quality: {...DEFAULTS, enhancer: 'gpen256', poisson: true, quality: 14}};
 const fields = {many: $('#optMany'), poisson: $('#optPoisson'), enhancer: $('#optEnhancer'), opacity: $('#optOpacity'), sharpness: $('#optSharpness'), mouth: $('#optMouth'), keepFps: $('#optKeepFps'), keepAudio: $('#optKeepAudio'), smooth: $('#optSmooth'), smoothWeight: $('#optSmoothWeight'), quality: $('#optQuality'), threads: $('#optThreads')};
 const formats = {opacity: v => `${v}%`, sharpness: v => Number(v).toFixed(1), mouth: v => Number(v) > 0 ? v : 'Off', smoothWeight: v => Number(v).toFixed(2), quality: v => v, threads: v => v};
@@ -206,8 +207,17 @@ const summarize = items => ({
   done: items.reduce((a, m) => a + (m.present ? (m.size || 0) : m.done), 0),
   state: items.every(m => m.present) ? 'ready' : items.some(m => m.state === 'downloading') ? 'downloading' : items.some(m => m.state === 'queued') ? 'queued' : items.some(m => m.state === 'error') ? 'error' : 'missing',
   error: (items.find(m => m.error) || {}).error,
-  names: items.filter(m => !m.present).map(m => m.name)
+  names: items.filter(m => !m.present).map(m => m.name),
+  presentNames: items.filter(m => m.present).map(m => m.name)
 });
+async function requestDelete(label, names){
+  if(!names.length) return;
+  if(!confirm(`Delete ${label}? This removes the model file(s) from disk.`)) return;
+  for(const name of names){
+    await fetch(`/api/models/${name}`, {method: 'DELETE'});
+  }
+  loadModels();
+}
 function modelRow(label, note, items){
   const s = summarize(items);
   const row = el('div', 'model');
@@ -219,6 +229,12 @@ function modelRow(label, note, items){
     const button = el('button', 'ghost', 'Download');
     button.type = 'button';
     button.onclick = () => requestDownload(s.names);
+    side.append(button);
+  }
+  if(s.state === 'ready'){
+    const button = el('button', 'link', 'Delete');
+    button.type = 'button';
+    button.onclick = () => requestDelete(label, s.presentNames);
     side.append(button);
   }
   row.append(info, side);
