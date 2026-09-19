@@ -266,7 +266,7 @@ function renderModels(data){
   const pack = data.models.filter(m => m.group === 'analyser');
   list.append(el('h3', '', 'Face detection (required)'), modelRow('Detection pack (buffalo_l)', pack[0].note, pack));
   $('#manualCmd').textContent = manualCommands(data);
-  modelsBadge.textContent = data.ready ? 'Models ready' : data.swapper_ready ? 'Detection pack missing' : 'Models missing';
+  modelsBadge.textContent = data.ready ? 'Models ready (Click to view)' : data.swapper_ready ? 'Detection pack missing' : 'Models missing';
   modelsBadge.classList.toggle('ok', data.ready);
   modelsBadge.classList.toggle('warn', !data.ready);
 }
