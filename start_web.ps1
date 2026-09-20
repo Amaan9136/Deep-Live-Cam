@@ -13,16 +13,33 @@ if (-not (Test-Path (Join-Path $ProjectRoot "modules"))) {
     Remove-Item -Recurse -Force $stage
 }
 
-$python = "C:\Users\Amaan M k\.conda\envs\trainer\python.exe"
-if (-not (Test-Path $python)) {
+$python = $null
+
+if ($env:CONDA_DEFAULT_ENV -eq "trainer" -and $env:CONDA_PREFIX) {
+    $candidate = Join-Path $env:CONDA_PREFIX "python.exe"
+    if (Test-Path $candidate) { $python = $candidate }
+}
+
+if (-not $python) {
+    $condaExe = Get-Command conda -ErrorAction SilentlyContinue
+    if ($condaExe) {
+        $envInfo = & conda env list | Select-String "^trainer\s"
+        if ($envInfo) {
+            $envPath = ($envInfo -split "\s+")[-1]
+            $candidate = Join-Path $envPath "python.exe"
+            if (Test-Path $candidate) { $python = $candidate }
+        }
+    }
+}
+
+if (-not $python) {
     $python = (Get-Command python -ErrorAction Stop).Source
 }
 
-& $python -m pip install -r (Join-Path $ProjectRoot "requirements.txt") -r (Join-Path $ProjectRoot "requirements-web.txt")
+& $python -m pip install -r requirements.txt
 
-# The current Deep-Live-Cam requirements explicitly use ORT GPU 1.26.0 on Windows.
-# Installing it here replaces the user's CPU-only 1.28.0 build without touching PyTorch.
-& $python -m pip install --upgrade "onnxruntime-gpu==1.26.0"
+# requirements.txt already pins onnxruntime-gpu==1.26.0 for this platform,
+# so a separate reinstall step is unnecessary.
 
 # Ensure the web runtime uses the same project root as the repository.
 $env:PYTHONPATH = $ProjectRoot

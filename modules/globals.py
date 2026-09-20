@@ -77,3 +77,4 @@ interpolation_weight: float = 0  # Blend weight for current frame (0.0-1.0). Low
 
 import threading
 dml_lock = threading.Lock()
+cuda_graph_lock = threading.Lock()

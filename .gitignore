@@ -31,3 +31,4 @@ install.bat
 *.bat
 
 repomix-output.*
+output/

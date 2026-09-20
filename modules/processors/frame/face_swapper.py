@@ -17,7 +17,7 @@ from modules.utilities import (
 )
 from modules.cluster_analysis import find_closest_centroid
 from modules.gpu_processing import gpu_gaussian_blur, gpu_sharpen, gpu_add_weighted, gpu_resize
-from modules.platform_info import OPENVINO_PROVIDER_CONFIG
+from modules.platform_info import OPENVINO_PROVIDER_CONFIG, HAS_CUDA_PROVIDER
 import os
 from collections import deque
 import time
@@ -29,6 +29,8 @@ NAME = "DLC.FACE-SWAPPER"
 # --- START: Added for Interpolation ---
 PREVIOUS_FRAME_RESULT = None # Stores the final processed frame from the previous step
 # --- END: Added for Interpolation ---
+
+_SOURCE_FACE_CACHE = {'path': None, 'face': None}
 
 # --- Poisson blend (ported from deep-live-cam-gumroad-edition) ---
 # Root-cause fix for the "wobble": the blend mask is NOT built from the
@@ -202,7 +204,7 @@ def pre_check() -> bool:
     from modules.model_downloader import ensure_any
 
     variants = ["inswapper_128.onnx", "inswapper_128_fp16.onnx"]
-    if _HAS_TORCH_CUDA:
+    if HAS_CUDA_PROVIDER:
         variants.reverse()
     if ensure_any(variants) is None:
         update_status(
@@ -240,7 +242,7 @@ def get_face_swapper() -> Any:
             # older GPUs (e.g. GTX 16xx) where FP16 can produce NaN.
             fp32_path = os.path.join(models_dir, "inswapper_128.onnx")
             fp16_path = os.path.join(models_dir, "inswapper_128_fp16.onnx")
-            use_fp16 = _HAS_TORCH_CUDA and os.path.exists(fp16_path)
+            use_fp16 = HAS_CUDA_PROVIDER and os.path.exists(fp16_path)
             if use_fp16:
                 model_path = fp16_path
             elif os.path.exists(fp32_path):
@@ -288,7 +290,7 @@ def get_face_swapper() -> Any:
                     providers=providers_config,
                 )
                 # Set up CUDA graph session for faster inference
-                if _HAS_TORCH_CUDA and any(
+                if HAS_CUDA_PROVIDER and any(
                     p == "CUDAExecutionProvider" or
                     (isinstance(p, tuple) and p[0] == "CUDAExecutionProvider")
                     for p in providers_config
@@ -350,10 +352,14 @@ _cuda_graph_session = {
     'ort_latent': None,
     'recorded': False,
 }
-# Serializes CUDA-graph replay. The io_binding + ort_input/ort_latent are
-# shared across threads and run_with_iobinding mutates GPU-side buffers;
-# concurrent calls would produce wrong output.
-_cuda_graph_lock = threading.Lock()
+# Serializes CUDA-graph replay against every other CUDA call in the
+# process (face detection/recognition included). The io_binding +
+# ort_input/ort_latent are shared across threads and run_with_iobinding
+# mutates GPU-side buffers, and a stream mid-replay cannot tolerate a
+# concurrent CUDA call from another thread/session — either one produces
+# wrong output, the other raises "operation not permitted when stream is
+# capturing". modules.globals.cuda_graph_lock is the same lock face_analyser
+# takes before any CUDA detection call, so the two never overlap.
 
 
 class _CudaGraphSessionAdapter:
@@ -440,7 +446,7 @@ def _init_cuda_graph_session(model_path: str, swapper):
 def _cuda_graph_swap_inference(blob: np.ndarray, latent: np.ndarray) -> np.ndarray:
     """Run swap model via CUDA graph replay — minimal CPU overhead."""
     cg = _cuda_graph_session
-    with _cuda_graph_lock:
+    with modules.globals.cuda_graph_lock:
         cg['ort_input'].update_inplace(blob)
         cg['ort_latent'].update_inplace(latent)
         cg['session'].run_with_iobinding(cg['io_binding'])
@@ -909,6 +915,35 @@ def process_frame_v2(temp_frame: Frame, temp_frame_path: str = "") -> Frame:
     return final_frame
 
 
+def _load_source_face(source_path: str) -> Any:
+    """Read + analyse the source image once and cache the result by path."""
+    if _SOURCE_FACE_CACHE['path'] == source_path:
+        return _SOURCE_FACE_CACHE['face']
+
+    source_face = None
+    if not source_path or not os.path.exists(source_path):
+        update_status(f"Error: Source path invalid or not provided for simple mode: {source_path}", NAME)
+    else:
+        try:
+            source_img = imread_unicode(source_path)
+            if source_img is None:
+                update_status(f"Error reading source image file {source_path}. Please check the path and file integrity.", NAME)
+            else:
+                source_face = get_one_face(source_img)
+                if source_face is None:
+                    update_status(f"Warning: Successfully read source image {source_path}, but no face was detected. Swaps will be skipped.", NAME)
+                del source_img
+        except Exception as e:
+            import traceback
+            print(f"{NAME}: Caught exception during source image processing for {source_path}:")
+            traceback.print_exc()
+            update_status(f"Error during source image reading or analysis {source_path}: {e}", NAME)
+
+    _SOURCE_FACE_CACHE['path'] = source_path
+    _SOURCE_FACE_CACHE['face'] = source_face
+    return source_face
+
+
 def process_frames(
     source_path: str, temp_frame_paths: List[str], progress: Any = None
 ) -> None:
@@ -920,33 +955,10 @@ def process_frames(
     """
     # Determine which processing function to use based on map_faces global setting
     use_v2 = getattr(modules.globals, "map_faces", False)
-    source_face = None # Initialize source_face
-
-    # --- Pre-load source face only if needed (Simple Mode: map_faces=False) ---
-    if not use_v2:
-        if not source_path or not os.path.exists(source_path):
-            update_status(f"Error: Source path invalid or not provided for simple mode: {source_path}", NAME)
-            # Log the error but allow proceeding; subsequent check will stop processing.
-        else:
-            try:
-                source_img = imread_unicode(source_path)
-                if source_img is None:
-                    # Specific error for file reading failure
-                    update_status(f"Error reading source image file {source_path}. Please check the path and file integrity.", NAME)
-                else:
-                    source_face = get_one_face(source_img)
-                    if source_face is None:
-                        # Specific message for no face detected after successful read
-                        update_status(f"Warning: Successfully read source image {source_path}, but no face was detected. Swaps will be skipped.", NAME)
-                    # Free memory immediately after extracting face
-                    del source_img
-            except Exception as e:
-                # Print the specific exception caught
-                import traceback
-                print(f"{NAME}: Caught exception during source image processing for {source_path}:")
-                traceback.print_exc() # Print the full traceback
-                update_status(f"Error during source image reading or analysis {source_path}: {e}", NAME)
-                # Log general exception during the process
+    # Simple Mode (map_faces=False): the source face was already read and
+    # analysed once by process_video()/process_image() before any worker
+    # thread started — reuse it instead of redoing that work on every call.
+    source_face = None if use_v2 else _load_source_face(source_path)
 
     total_frames = len(temp_frame_paths)
     # update_status(f"Processing {total_frames} frames. Use V2 (map_faces): {use_v2}", NAME) # Optional Debug
@@ -1055,18 +1067,10 @@ def process_image(source_path: str, target_path: str, output_path: str) -> None:
             result = process_frame_v2(target_frame, target_path)
 
         else: # Simple mode
-            try:
-                source_img = imread_unicode(source_path)
-                if source_img is None:
-                    update_status(f"Error: Could not read source image: {source_path}", NAME)
-                    return
-                source_face = get_one_face(source_img)
-                if not source_face:
-                    update_status(f"Error: No face found in source image: {source_path}", NAME)
-                    return
-            except Exception as src_e:
-                 update_status(f"Error reading or analyzing source image {source_path}: {src_e}", NAME)
-                 return
+            source_face = _load_source_face(source_path)
+            if not source_face:
+                update_status(f"Error: No face found in source image: {source_path}", NAME)
+                return
 
             result = process_frame(source_face, target_frame)
 
@@ -1098,6 +1102,9 @@ def process_video(source_path: str, temp_frame_paths: List[str]) -> None:
     if getattr(modules.globals, "map_faces", False) and getattr(modules.globals, "many_faces", False):
         mode_desc += " and 'many_faces'. Using pre-analysis map."
     update_status(f"Processing video with {mode_desc} mode.", NAME)
+
+    if not getattr(modules.globals, "map_faces", False):
+        _load_source_face(source_path)
 
     # Pass the correct source_path (needed for simple mode in process_frames)
     # The core processing logic handles calling the right frame function (process_frames)

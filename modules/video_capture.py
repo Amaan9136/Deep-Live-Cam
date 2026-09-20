@@ -8,6 +8,36 @@ import threading
 # Only import Windows-specific library if on Windows
 if platform.system() == "Windows":
     from pygrabber.dshow_graph import FilterGraph
+    import pythoncom
+
+_com_lock = threading.Lock()
+_com_initialized_threads: set = set()
+
+
+def _ensure_com_initialized() -> None:
+    """Initialize COM on the calling thread if it hasn't been already.
+
+    pygrabber's FilterGraph talks to DirectShow through COM (via pywin32),
+    which requires CoInitialize() on every thread that touches it. FastAPI
+    dispatches sync route handlers onto its worker threadpool, so each
+    request can land on a thread that has never called CoInitialize().
+    CoInitialize() is safe to call more than once on the same thread (it
+    just returns S_FALSE), so this only needs to track threads it hasn't
+    seen yet to avoid the (harmless but noisy) repeat call.
+    """
+    if platform.system() != "Windows":
+        return
+    ident = threading.get_ident()
+    if ident in _com_initialized_threads:
+        return
+    with _com_lock:
+        if ident in _com_initialized_threads:
+            return
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            pass
+        _com_initialized_threads.add(ident)
 
 
 class VideoCapturer:
@@ -25,6 +55,7 @@ class VideoCapturer:
 
         # Initialize Windows-specific components if on Windows
         if platform.system() == "Windows":
+            _ensure_com_initialized()
             self.graph = FilterGraph()
             # Verify device exists
             devices = self.graph.get_input_devices()
@@ -32,6 +63,7 @@ class VideoCapturer:
                 raise ValueError(
                     f"Invalid device index {device_index}. Available devices: {len(devices)}"
                 )
+
 
     def start(self, width: int = 960, height: int = 540, fps: int = 60) -> bool:
         """Initialize and start video capture"""
@@ -158,3 +190,36 @@ class VideoCapturer:
     def set_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
         """Set callback for frame processing"""
         self.frame_callback = callback
+
+
+def list_cameras() -> list:
+    """Enumerate available cameras without assuming index 0.
+
+    Windows uses pygrabber's DirectShow device list (same enumeration
+    VideoCapturer's device_index maps to). macOS/Linux probe indices
+    directly since there is no equivalent named-device API.
+    """
+    system = platform.system()
+    if system == "Windows":
+        try:
+            _ensure_com_initialized()
+            devices = FilterGraph().get_input_devices()
+            return [{"index": i, "name": name} for i, name in enumerate(devices)]
+        except Exception as e:
+            print(f"[VideoCapturer] Error enumerating cameras: {e}")
+            return []
+    if system == "Darwin":
+        found = []
+        for i in range(4):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                found.append({"index": i, "name": f"Camera {i}"})
+            cap.release()
+        return found
+    found = []
+    for i in range(10):
+        cap = cv2.VideoCapture(f"/dev/video{i}")
+        if cap.isOpened():
+            found.append({"index": i, "name": f"Camera {i}"})
+        cap.release()
+    return found
