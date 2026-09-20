@@ -504,6 +504,66 @@ const rtPlaceholder = $('#rtPlaceholder');
 let rtSourceUrl = null;
 let rtSourceReady = false;
 let rtPollTimer = null;
+let rtPushTimer = null;
+const RT_DEFAULTS = {many: false, poisson: false, enhancer: 'none', opacity: 100, sharpness: 0, mouth: 0, smooth: false, smoothWeight: 0.5, mirror: false, detect: 3, streamWidth: '960', jpeg: 80, resolution: '1920x1080', fps: '30'};
+const RT_PRESETS = {fast: {...RT_DEFAULTS, detect: 4, streamWidth: '640', jpeg: 70, resolution: '1280x720'}, balanced: RT_DEFAULTS, quality: {...RT_DEFAULTS, enhancer: 'gpen256', poisson: true, detect: 2, streamWidth: '1280', jpeg: 90}};
+const rtFields = {many: $('#rtOptMany'), poisson: $('#rtOptPoisson'), enhancer: $('#rtOptEnhancer'), opacity: $('#rtOptOpacity'), sharpness: $('#rtOptSharpness'), mouth: $('#rtOptMouth'), smooth: $('#rtOptSmooth'), smoothWeight: $('#rtOptSmoothWeight'), mirror: $('#rtOptMirror'), detect: $('#rtOptDetect'), streamWidth: $('#rtOptStreamWidth'), jpeg: $('#rtOptJpeg'), resolution: $('#rtOptResolution'), fps: $('#rtOptFps')};
+const rtFormats = {opacity: v => `${v}%`, sharpness: v => Number(v).toFixed(1), mouth: v => Number(v) > 0 ? v : 'Off', smoothWeight: v => Number(v).toFixed(2), detect: v => v, jpeg: v => v};
+function readRtOptions(){
+  const out = {};
+  for(const [key, node] of Object.entries(rtFields)) out[key] = node.type === 'checkbox' ? node.checked : node.type === 'range' ? Number(node.value) : node.value;
+  return out;
+}
+function rtPayload(){
+  const o = readRtOptions();
+  return {many_faces: o.many, enhancer: o.enhancer, opacity: o.opacity, sharpness: o.sharpness, mouth_mask_size: o.mouth, poisson_blend: o.poisson, interpolation: o.smooth, interpolation_weight: o.smoothWeight, mirror: o.mirror, detect_every: o.detect, stream_width: o.streamWidth, jpeg_quality: o.jpeg, resolution: o.resolution, capture_fps: o.fps};
+}
+function refreshRtOutputs(){
+  for(const [key, format] of Object.entries(rtFormats)) $(`#rtOpt${key[0].toUpperCase()}${key.slice(1)}Out`).textContent = format(rtFields[key].value);
+}
+function writeRtOptions(options){
+  for(const [key, node] of Object.entries(rtFields)){
+    const value = options[key] ?? RT_DEFAULTS[key];
+    if(node.type === 'checkbox') node.checked = !!value;
+    else node.value = value;
+  }
+  refreshRtOutputs();
+}
+function saveRtOptions(){
+  try{ localStorage.setItem('lfs.rtoptions', JSON.stringify(readRtOptions())); }catch(err){}
+}
+function pushRtSettings(){
+  clearTimeout(rtPushTimer);
+  rtPushTimer = setTimeout(async () => {
+    if(rtStop.classList.contains('hidden')) return;
+    try{
+      const res = await fetch('/api/realtime/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(rtPayload())});
+      if(!res.ok) throw new Error((await res.json()).detail || 'Could not apply settings.');
+    }catch(err){
+      rtStatus.textContent = err.message || 'Could not apply settings.';
+    }
+  }, 200);
+}
+Object.values(rtFields).forEach(node => node.addEventListener('input', () => {
+  refreshRtOutputs();
+  saveRtOptions();
+  pushRtSettings();
+}));
+rtFields.enhancer.addEventListener('change', () => {
+  const model = modelState && modelState.models.find(m => m.name === ENHANCER_MODELS[rtFields.enhancer.value]);
+  if(model && !model.present) rtStatus.textContent = `${model.label} will be downloaded on first use (${fmtBytes(model.size)}).`;
+});
+document.querySelectorAll('[data-rtpreset]').forEach(button => button.onclick = () => {
+  writeRtOptions(RT_PRESETS[button.dataset.rtpreset]);
+  saveRtOptions();
+  pushRtSettings();
+});
+$('#rtResetOptions').onclick = () => {
+  writeRtOptions(RT_DEFAULTS);
+  saveRtOptions();
+  pushRtSettings();
+};
+try{ writeRtOptions(JSON.parse(localStorage.getItem('lfs.rtoptions')) || RT_DEFAULTS); }catch(err){ writeRtOptions(RT_DEFAULTS); }
 mainTabs.forEach(b => b.onclick = () => {
   mainTabs.forEach(x => x.classList.toggle('active', x === b));
   const tab = b.dataset.maintab;
@@ -616,6 +676,7 @@ rtStart.onclick = async () => {
   try{
     const form = new FormData();
     form.append('camera_index', rtCamera.value);
+    form.append('settings', JSON.stringify(rtPayload()));
     const res = await fetch('/api/realtime/start', {method: 'POST', body: form});
     const data = await res.json();
     if(!res.ok) throw new Error(data.detail || 'Could not start the camera.');

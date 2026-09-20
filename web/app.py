@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import os
 import re
 import shutil
@@ -33,7 +34,7 @@ if os.name == "nt":
                     os.add_dll_directory(str(bin_dir))
                 except OSError:
                     pass
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -505,12 +506,55 @@ async def realtime_source(source: UploadFile = File(...)):
     except RuntimeError as exc:
         raise HTTPException(400, str(exc))
     return {"ready": True}
-@app.post("/api/realtime/start")
-def realtime_start(camera_index: int = Form(...)):
+RT_RESOLUTIONS = {"640x480": (640, 480), "1280x720": (1280, 720), "1920x1080": (1920, 1080)}
+def _realtime_options(raw: Any) -> dict[str, Any]:
     try:
-        realtime_session.start(camera_index)
+        data = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        width, height = RT_RESOLUTIONS.get(str(data.get("resolution", "1920x1080")), (1920, 1080))
+        options = {
+            "many_faces": bool(data.get("many_faces", False)),
+            "enhancer": str(data.get("enhancer", "none")),
+            "opacity": _clamp(float(data.get("opacity", 100)), 0, 100) / 100,
+            "sharpness": _clamp(float(data.get("sharpness", 0)), 0, 5),
+            "mouth_mask_size": int(_clamp(float(data.get("mouth_mask_size", 0)), 0, 100)),
+            "poisson_blend": bool(data.get("poisson_blend", False)),
+            "interpolation": bool(data.get("interpolation", False)),
+            "interpolation_weight": _clamp(float(data.get("interpolation_weight", 0.5)), 0.05, 0.95),
+            "mirror": bool(data.get("mirror", False)),
+            "detect_every": int(_clamp(float(data.get("detect_every", 3)), 1, 10)),
+            "stream_width": int(_clamp(float(data.get("stream_width", 960)), 0, 3840)),
+            "jpeg_quality": int(_clamp(float(data.get("jpeg_quality", 80)), 40, 100)),
+            "capture_width": width,
+            "capture_height": height,
+            "capture_fps": int(_clamp(float(data.get("capture_fps", 30)), 5, 60)),
+        }
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(400, "Invalid real-time settings.")
+    if options["enhancer"] != "none" and options["enhancer"] not in ENHANCERS:
+        raise HTTPException(400, "Unknown face enhancer.")
+    return options
+def _ensure_enhancer(name: str) -> None:
+    entry = CATALOG.get(ENHANCER_FILES.get(name, ""))
+    if entry and not _present(entry) and not _fetch(entry):
+        raise HTTPException(500, f"Could not download {entry['label']}. " + _manual_hint(entry))
+@app.post("/api/realtime/start")
+def realtime_start(camera_index: int = Form(...), settings: str = Form("{}")):
+    options = _realtime_options(settings)
+    _ensure_enhancer(options["enhancer"])
+    try:
+        realtime_session.start(camera_index, options)
     except RuntimeError as exc:
         raise HTTPException(400, str(exc))
+    return realtime_session.status()
+@app.post("/api/realtime/settings")
+def realtime_settings(payload: dict[str, Any] = Body(...)):
+    options = _realtime_options(payload)
+    _ensure_enhancer(options["enhancer"])
+    if realtime_session.status()["running"]:
+        try:
+            realtime_session.configure(options)
+        except RuntimeError as exc:
+            raise HTTPException(400, str(exc))
     return realtime_session.status()
 @app.post("/api/realtime/stop")
 def realtime_stop():

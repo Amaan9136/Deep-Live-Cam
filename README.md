@@ -1,5 +1,5 @@
 # Deep-Live-Cam Local Web Interface
-This package adds a thin FastAPI browser layer to the current official
+This package adds a thin FastAPI browser layer to the official
 Deep-Live-Cam repository.
 ## Purpose
 Provides a completely local browser interface for:

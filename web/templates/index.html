@@ -58,6 +58,66 @@
             <button id="rtRefreshCameras" class="ghost" type="button">Refresh cameras</button>
           </div>
         </div>
+        <details class="options" open>
+          <summary>Options</summary>
+          <div class="presets">
+            <span>Presets</span>
+            <button type="button" class="ghost" data-rtpreset="fast">Fast</button>
+            <button type="button" class="ghost" data-rtpreset="balanced">Balanced</button>
+            <button type="button" class="ghost" data-rtpreset="quality">Quality</button>
+            <button id="rtResetOptions" type="button" class="link">Reset</button>
+          </div>
+          <div class="opts">
+            <label class="check"><input id="rtOptMany" type="checkbox"><span>Swap all faces<small>Replace every face in view, not just one.</small></span></label>
+            <label class="check"><input id="rtOptPoisson" type="checkbox"><span>Poisson blending<small>Smoother edges around the swapped face.</small></span></label>
+            <label class="opt"><span>Face enhancer</span>
+              <select id="rtOptEnhancer">
+                <option value="none">None (fastest)</option>
+                <option value="gpen256">GPEN-256 (light)</option>
+                <option value="gpen512">GPEN-512 (balanced)</option>
+                <option value="gfpgan">GFPGAN (best detail, heavy)</option>
+              </select>
+            </label>
+            <label class="opt"><span>Swap strength <output id="rtOptOpacityOut">100%</output></span><input id="rtOptOpacity" type="range" min="10" max="100" step="5" value="100"></label>
+            <label class="opt"><span>Sharpness <output id="rtOptSharpnessOut">0.0</output></span><input id="rtOptSharpness" type="range" min="0" max="5" step="0.1" value="0"></label>
+            <label class="opt"><span>Keep original mouth <output id="rtOptMouthOut">Off</output></span><input id="rtOptMouth" type="range" min="0" max="100" step="5" value="0"></label>
+            <label class="check"><input id="rtOptSmooth" type="checkbox"><span>Temporal smoothing<small>Reduces flicker between frames.</small></span></label>
+            <label class="opt"><span>Smoothing weight <output id="rtOptSmoothWeightOut">0.50</output></span><input id="rtOptSmoothWeight" type="range" min="0.1" max="0.9" step="0.05" value="0.5"></label>
+            <label class="check"><input id="rtOptMirror" type="checkbox"><span>Mirror preview<small>Flip horizontally like a selfie camera.</small></span></label>
+            <div class="opt-group">
+              <h3>Performance (applies live)</h3>
+              <label class="opt"><span>Detect face every N frames <output id="rtOptDetectOut">3</output></span><input id="rtOptDetect" type="range" min="1" max="10" step="1" value="3"></label>
+              <label class="opt"><span>Stream width</span>
+                <select id="rtOptStreamWidth">
+                  <option value="480">480 px</option>
+                  <option value="640">640 px</option>
+                  <option value="960" selected>960 px</option>
+                  <option value="1280">1280 px</option>
+                  <option value="1920">1920 px</option>
+                  <option value="0">Original</option>
+                </select>
+              </label>
+              <label class="opt"><span>JPEG quality <output id="rtOptJpegOut">80</output></span><input id="rtOptJpeg" type="range" min="40" max="100" step="5" value="80"></label>
+            </div>
+            <div class="opt-group">
+              <h3>Camera (applies on next start)</h3>
+              <label class="opt"><span>Capture resolution</span>
+                <select id="rtOptResolution">
+                  <option value="640x480">640×480</option>
+                  <option value="1280x720">1280×720 (HD)</option>
+                  <option value="1920x1080" selected>1920×1080 (Full HD)</option>
+                </select>
+              </label>
+              <label class="opt"><span>Capture FPS</span>
+                <select id="rtOptFps">
+                  <option value="15">15</option>
+                  <option value="30" selected>30</option>
+                  <option value="60">60</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </details>
         <div class="rt-controls">
           <button id="rtStart" class="primary" type="button">Start Camera</button>
           <button id="rtStop" class="ghost hidden" type="button">Stop</button>

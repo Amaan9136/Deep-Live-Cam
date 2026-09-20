@@ -1,5 +1,4 @@
 """Real-time webcam face-swap session.
-
 Reuses the existing Deep-Live-Cam engine (face analyser, face swapper,
 model loading, CUDA/ONNX configuration) instead of a second engine. The
 capture-thread + bounded-queue + cached-target-detection pattern mirrors
@@ -8,21 +7,18 @@ frames, the cached target face is reused in between, and frames are
 dropped rather than queued when processing falls behind.
 """
 from __future__ import annotations
-
+import importlib
 import queue
 import threading
 import time
 from typing import Any, Optional, Tuple
-
 import cv2
-
 import modules.globals as dlc_globals
 from modules import imread_unicode
 from modules.face_analyser import get_face_analyser, get_one_face, detect_one_face_fast
 from modules.model_downloader import is_present as _model_present
 from modules.processors.frame.face_swapper import get_face_swapper, process_frame
 from modules.video_capture import VideoCapturer, list_cameras
-
 DETECT_EVERY = 3
 CAPTURE_WIDTH = 1920
 CAPTURE_HEIGHT = 1080
@@ -30,13 +26,28 @@ CAPTURE_FPS = 30
 STREAM_MAX_WIDTH = 960
 JPEG_QUALITY = 80
 MAX_READ_FAILURES = 60
-
-
+ENHANCER_MODULES = {"gfpgan": "face_enhancer", "gpen256": "face_enhancer_gpen256", "gpen512": "face_enhancer_gpen512"}
+DEFAULT_OPTIONS = {
+    "many_faces": False,
+    "enhancer": "none",
+    "opacity": 1.0,
+    "sharpness": 0.0,
+    "mouth_mask_size": 0,
+    "poisson_blend": False,
+    "interpolation": False,
+    "interpolation_weight": 0.5,
+    "mirror": False,
+    "detect_every": DETECT_EVERY,
+    "stream_width": STREAM_MAX_WIDTH,
+    "jpeg_quality": JPEG_QUALITY,
+    "capture_width": CAPTURE_WIDTH,
+    "capture_height": CAPTURE_HEIGHT,
+    "capture_fps": CAPTURE_FPS,
+}
 class RealtimeCameraSession:
     """Owns the capture thread, worker thread, and shared state for the
     one real-time face-swap session this app supports at a time. A single
     instance is reused across start/stop cycles."""
-
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._source_path: Optional[str] = None
@@ -56,7 +67,8 @@ class RealtimeCameraSession:
         self._frame_counter = 0
         self._fps_times: list[float] = []
         self._fps = 0.0
-
+        self._options: dict[str, Any] = dict(DEFAULT_OPTIONS)
+        self._mirrored = False
     def set_source(self, path: str) -> None:
         """Read and analyse the source image once, caching it by path."""
         with self._lock:
@@ -74,44 +86,52 @@ class RealtimeCameraSession:
                 raise RuntimeError("No face detected in the source image.")
             self._source_path = path
             self._source_face = face
-
     @staticmethod
     def cameras() -> list:
         return list_cameras()
-
-    def start(self, camera_index: int) -> None:
+    @staticmethod
+    def _enhancer(name: str) -> Any:
+        return importlib.import_module(f"modules.processors.frame.{ENHANCER_MODULES[name]}")
+    def configure(self, options: dict) -> None:
+        merged = {**DEFAULT_OPTIONS, **options}
+        if merged["enhancer"] != "none":
+            try:
+                module = self._enhancer(merged["enhancer"])
+                (getattr(module, "get_enhancer", None) or module.get_face_enhancer)()
+            except Exception as exc:
+                raise RuntimeError(f"Face enhancer failed to load: {exc}")
+        self._options = merged
+        dlc_globals.many_faces = merged["many_faces"]
+        dlc_globals.poisson_blend = merged["poisson_blend"]
+        dlc_globals.sharpness = merged["sharpness"]
+        dlc_globals.opacity = merged["opacity"]
+        dlc_globals.mouth_mask = merged["mouth_mask_size"] > 0
+        dlc_globals.mouth_mask_size = float(merged["mouth_mask_size"])
+        dlc_globals.enable_interpolation = merged["interpolation"]
+        dlc_globals.interpolation_weight = merged["interpolation_weight"] if merged["interpolation"] else 0.0
+    def start(self, camera_index: int, options: Optional[dict] = None) -> None:
         with self._lock:
             if self._running:
                 return
             if self._source_face is None:
                 raise RuntimeError("Select a source face before starting the camera.")
-
             import onnxruntime as ort
             if "CUDAExecutionProvider" not in ort.get_available_providers():
                 raise RuntimeError("CUDAExecutionProvider is not available in this environment.")
             if not (_model_present("inswapper_128_fp16.onnx") or _model_present("inswapper_128.onnx")):
                 raise RuntimeError("No face swapper model found. Download it from the Models panel first.")
-
             if "CUDAExecutionProvider" not in dlc_globals.execution_providers:
                 dlc_globals.execution_providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
             dlc_globals.frame_processors = ["face_swapper"]
-            dlc_globals.many_faces = False
             dlc_globals.map_faces = False
-            dlc_globals.mouth_mask = False
-            dlc_globals.poisson_blend = False
-            dlc_globals.sharpness = 0.0
-            dlc_globals.enable_interpolation = False
-            dlc_globals.opacity = 1.0
-
+            self.configure(options or {})
             capturer = VideoCapturer(camera_index)
-            if not capturer.start(width=CAPTURE_WIDTH, height=CAPTURE_HEIGHT, fps=CAPTURE_FPS):
+            if not capturer.start(width=self._options["capture_width"], height=self._options["capture_height"], fps=self._options["capture_fps"]):
                 raise RuntimeError(f"Could not open camera {camera_index}.")
-
             get_face_analyser()
             if get_face_swapper() is None:
                 capturer.release()
                 raise RuntimeError("Face swapper model failed to load.")
-
             self._capturer = capturer
             self._camera_index = camera_index
             self._cached_face = None
@@ -129,7 +149,6 @@ class RealtimeCameraSession:
             self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self._capture_thread.start()
             self._worker_thread.start()
-
     def stop(self) -> None:
         with self._lock:
             if not self._running:
@@ -151,7 +170,6 @@ class RealtimeCameraSession:
             self._latest_jpeg = None
             self._frame_version += 1
             self._frame_cond.notify_all()
-
     def status(self) -> dict:
         camera = None
         if self._capturer is not None:
@@ -168,20 +186,17 @@ class RealtimeCameraSession:
             "fps": round(self._fps, 1),
             "error": self._error,
         }
-
     def latest_jpeg(self, after_version: int = 0, timeout: float = 1.0) -> Tuple[Optional[bytes], int]:
         with self._frame_cond:
             if self._frame_version == after_version:
                 self._frame_cond.wait(timeout)
             return self._latest_jpeg, self._frame_version
-
     def _drain_queue(self) -> None:
         while not self._frame_queue.empty():
             try:
                 self._frame_queue.get_nowait()
             except queue.Empty:
                 break
-
     def _capture_loop(self) -> None:
         capturer = self._capturer
         failures = 0
@@ -209,51 +224,57 @@ class RealtimeCameraSession:
                     self._frame_queue.put_nowait(frame)
                 except queue.Full:
                     pass
-
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
                 frame = self._frame_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
-
+            options = self._options
+            many = options["many_faces"]
+            if options["mirror"] != self._mirrored:
+                self._mirrored = options["mirror"]
+                self._cached_face = None
+            if self._mirrored:
+                frame = cv2.flip(frame, 1)
             self._frame_counter += 1
-            if self._cached_face is None or self._frame_counter % DETECT_EVERY == 0:
+            if not many and (self._cached_face is None or self._frame_counter % options["detect_every"] == 0):
                 try:
                     self._cached_face = detect_one_face_fast(frame)
                 except Exception:
                     self._cached_face = None
-
             try:
                 processed = (
                     process_frame(self._source_face, frame, target_face=self._cached_face)
-                    if self._cached_face is not None
+                    if many or self._cached_face is not None
                     else frame
                 )
             except Exception as exc:
                 self._error = str(exc)
                 processed = frame
-
-            if STREAM_MAX_WIDTH and processed.shape[1] > STREAM_MAX_WIDTH:
-                scale = STREAM_MAX_WIDTH / processed.shape[1]
+            if options["enhancer"] != "none" and (many or self._cached_face is not None):
+                try:
+                    processed = self._enhancer(options["enhancer"]).process_frame(
+                        None, processed, detected_faces=None if many else [self._cached_face]
+                    )
+                except Exception as exc:
+                    self._error = str(exc)
+            if options["stream_width"] and processed.shape[1] > options["stream_width"]:
+                scale = options["stream_width"] / processed.shape[1]
                 processed = cv2.resize(
                     processed,
-                    (STREAM_MAX_WIDTH, int(processed.shape[0] * scale)),
+                    (options["stream_width"], int(processed.shape[0] * scale)),
                     interpolation=cv2.INTER_AREA,
                 )
-
-            ok, encoded = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            ok, encoded = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, options["jpeg_quality"]])
             if ok:
                 with self._frame_cond:
                     self._latest_jpeg = encoded.tobytes()
                     self._frame_version += 1
                     self._frame_cond.notify_all()
-
             now = time.time()
             self._fps_times.append(now)
             self._fps_times = [t for t in self._fps_times if now - t <= 2.0]
             if len(self._fps_times) >= 2:
                 self._fps = (len(self._fps_times) - 1) / (self._fps_times[-1] - self._fps_times[0])
-
-
 SESSION = RealtimeCameraSession()
