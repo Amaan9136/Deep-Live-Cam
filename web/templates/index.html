@@ -36,6 +36,41 @@
         <button id="copyCmd" class="ghost" type="button">Copy commands</button>
       </details>
     </section>
+    <div id="mainTabs" class="tabs main-tabs">
+      <button type="button" class="active" data-maintab="classic">Image / Video</button>
+      <button type="button" data-maintab="realtime">Real-Time Camera</button>
+    </div>
+    <div id="realtimePanel" class="hidden">
+      <section class="card">
+        <div class="grid">
+          <div class="field">
+            <span>Source Face</span>
+            <label id="rtSourceDrop" class="drop">
+              <input id="rtSource" type="file" accept="image/jpeg,image/png,image/webp,image/bmp">
+              <div class="drop-hint"><strong>Click or drop a face photo</strong><small>JPG, PNG, WEBP, BMP</small></div>
+              <img id="rtSourcePreview" class="preview hidden" alt="Source preview">
+            </label>
+            <div class="meta-row"><span id="rtSourceMeta" class="meta"></span><button id="rtSourceClear" class="link hidden" type="button">Remove</button></div>
+          </div>
+          <div class="field">
+            <span>Camera</span>
+            <select id="rtCamera"></select>
+            <button id="rtRefreshCameras" class="ghost" type="button">Refresh cameras</button>
+          </div>
+        </div>
+        <div class="rt-controls">
+          <button id="rtStart" class="primary" type="button">Start Camera</button>
+          <button id="rtStop" class="ghost hidden" type="button">Stop</button>
+        </div>
+        <div id="rtStatus" class="status">Select a source face and camera, then start.</div>
+        <div class="rt-view">
+          <img id="rtStream" class="result-media hidden" alt="Live face swap preview">
+          <div id="rtPlaceholder" class="rt-placeholder">Camera preview will appear here.</div>
+        </div>
+        <div id="rtStats" class="meta"></div>
+      </section>
+    </div>
+    <div id="classicPanel">
     <section class="card">
       <div class="grid">
         <div class="field full">
@@ -141,6 +176,7 @@
       <div id="gallery" class="gallery"></div>
       <p id="galleryEmpty" class="meta">No outputs yet.</p>
     </section>
+    </div>
   </main>
   <script src="/static/app.js"></script>
 </body>

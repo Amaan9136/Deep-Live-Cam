@@ -486,3 +486,158 @@ loadGallery().catch(() => {});
   const res = await fetch(`/api/jobs/${id}`);
   if(res.ok && (await res.json()).state === 'processing') track(id, false);
 })().catch(() => {});
+const mainTabs = document.querySelectorAll('[data-maintab]');
+const classicPanel = $('#classicPanel');
+const realtimePanel = $('#realtimePanel');
+const rtSource = $('#rtSource');
+const rtSourceDrop = $('#rtSourceDrop');
+const rtSourcePreview = $('#rtSourcePreview');
+const rtSourceMeta = $('#rtSourceMeta');
+const rtSourceClear = $('#rtSourceClear');
+const rtCamera = $('#rtCamera');
+const rtStart = $('#rtStart');
+const rtStop = $('#rtStop');
+const rtStatus = $('#rtStatus');
+const rtStats = $('#rtStats');
+const rtStream = $('#rtStream');
+const rtPlaceholder = $('#rtPlaceholder');
+let rtSourceUrl = null;
+let rtSourceReady = false;
+let rtPollTimer = null;
+mainTabs.forEach(b => b.onclick = () => {
+  mainTabs.forEach(x => x.classList.toggle('active', x === b));
+  const tab = b.dataset.maintab;
+  classicPanel.classList.toggle('hidden', tab !== 'classic');
+  realtimePanel.classList.toggle('hidden', tab !== 'realtime');
+  if(tab === 'realtime') loadCameras();
+});
+async function uploadRtSource(file){
+  if(!file) return;
+  if(!IMAGE_RE.test(file.name)){
+    rtStatus.textContent = 'Source must be a JPG, PNG, BMP, or WEBP image.';
+    return;
+  }
+  revoke(rtSourceUrl);
+  rtSourceUrl = URL.createObjectURL(file);
+  rtSourcePreview.src = rtSourceUrl;
+  rtSourcePreview.classList.remove('hidden');
+  rtSourceClear.classList.remove('hidden');
+  rtSourceDrop.classList.add('filled');
+  rtSourceMeta.textContent = `${file.name} · ${fmtBytes(file.size)}`;
+  rtSourceReady = false;
+  rtStatus.textContent = 'Analysing source face…';
+  try{
+    const form = new FormData();
+    form.append('source', file);
+    const res = await fetch('/api/realtime/source', {method: 'POST', body: form});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Could not analyse the source image.');
+    rtSourceReady = true;
+    rtStatus.textContent = 'Source face ready. Pick a camera and start.';
+  }catch(err){
+    rtStatus.textContent = err.message || 'Could not analyse the source image.';
+  }
+}
+rtSource.onchange = () => uploadRtSource(rtSource.files[0]);
+rtSourceClear.onclick = e => {
+  e.preventDefault();
+  revoke(rtSourceUrl);
+  rtSourceUrl = null;
+  rtSourceReady = false;
+  rtSource.value = '';
+  rtSourcePreview.removeAttribute('src');
+  rtSourcePreview.classList.add('hidden');
+  rtSourceClear.classList.add('hidden');
+  rtSourceDrop.classList.remove('filled');
+  rtSourceMeta.textContent = '';
+};
+rtSourceDrop.ondragover = e => { e.preventDefault(); rtSourceDrop.classList.add('over'); };
+rtSourceDrop.ondragleave = () => rtSourceDrop.classList.remove('over');
+rtSourceDrop.ondrop = e => {
+  e.preventDefault();
+  rtSourceDrop.classList.remove('over');
+  if(e.dataTransfer.files[0]) uploadRtSource(e.dataTransfer.files[0]);
+};
+async function loadCameras(){
+  try{
+    const data = await (await fetch('/api/realtime/cameras')).json();
+    rtCamera.replaceChildren();
+    if(!data.cameras.length){
+      rtCamera.append(el('option', '', 'No cameras found'));
+      rtCamera.disabled = true;
+      return;
+    }
+    rtCamera.disabled = false;
+    data.cameras.forEach(cam => {
+      const opt = el('option', '', cam.name);
+      opt.value = cam.index;
+      rtCamera.append(opt);
+    });
+  }catch(err){
+    rtStatus.textContent = 'Could not list cameras.';
+  }
+}
+$('#rtRefreshCameras').onclick = loadCameras;
+function stopRtView(){
+  clearTimeout(rtPollTimer);
+  rtStream.removeAttribute('src');
+  rtStream.classList.add('hidden');
+  rtPlaceholder.classList.remove('hidden');
+  rtStart.classList.remove('hidden');
+  rtStop.classList.add('hidden');
+  rtStats.textContent = '';
+}
+async function pollRtStatus(){
+  try{
+    const data = await (await fetch('/api/realtime/status')).json();
+    if(!data.running){
+      stopRtView();
+      rtStatus.textContent = data.error || 'Stopped.';
+      return;
+    }
+    rtStatus.textContent = data.error || 'Streaming…';
+    rtStats.textContent = data.camera ? `${data.camera.width}×${data.camera.height} · ~${data.fps.toFixed(1)} FPS` : '';
+    rtPollTimer = setTimeout(pollRtStatus, 1000);
+  }catch(err){
+    rtPollTimer = setTimeout(pollRtStatus, 2000);
+  }
+}
+rtStart.onclick = async () => {
+  if(!rtSourceReady){
+    rtStatus.textContent = 'Choose a source face first.';
+    return;
+  }
+  if(rtCamera.disabled){
+    rtStatus.textContent = 'No camera available.';
+    return;
+  }
+  rtStart.disabled = true;
+  rtStatus.textContent = 'Starting camera…';
+  try{
+    const form = new FormData();
+    form.append('camera_index', rtCamera.value);
+    const res = await fetch('/api/realtime/start', {method: 'POST', body: form});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Could not start the camera.');
+    rtStream.src = `/api/realtime/stream?t=${Date.now()}`;
+    rtStream.classList.remove('hidden');
+    rtPlaceholder.classList.add('hidden');
+    rtStart.classList.add('hidden');
+    rtStop.classList.remove('hidden');
+    pollRtStatus();
+  }catch(err){
+    rtStatus.textContent = err.message || 'Could not start the camera.';
+  }finally{
+    rtStart.disabled = false;
+  }
+};
+rtStop.onclick = async () => {
+  rtStop.disabled = true;
+  try{ await fetch('/api/realtime/stop', {method: 'POST'}); }catch(err){}
+  stopRtView();
+  rtStatus.textContent = 'Stopped.';
+  rtStop.disabled = false;
+};
+window.addEventListener('beforeunload', () => {
+  if(!rtStop.classList.contains('hidden')) navigator.sendBeacon('/api/realtime/stop');
+});

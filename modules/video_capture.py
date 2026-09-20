@@ -158,3 +158,35 @@ class VideoCapturer:
     def set_frame_callback(self, callback: Callable[[np.ndarray], None]) -> None:
         """Set callback for frame processing"""
         self.frame_callback = callback
+
+
+def list_cameras() -> list:
+    """Enumerate available cameras without assuming index 0.
+
+    Windows uses pygrabber's DirectShow device list (same enumeration
+    VideoCapturer's device_index maps to). macOS/Linux probe indices
+    directly since there is no equivalent named-device API.
+    """
+    system = platform.system()
+    if system == "Windows":
+        try:
+            devices = FilterGraph().get_input_devices()
+            return [{"index": i, "name": name} for i, name in enumerate(devices)]
+        except Exception as e:
+            print(f"[VideoCapturer] Error enumerating cameras: {e}")
+            return []
+    if system == "Darwin":
+        found = []
+        for i in range(4):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                found.append({"index": i, "name": f"Camera {i}"})
+            cap.release()
+        return found
+    found = []
+    for i in range(10):
+        cap = cv2.VideoCapture(f"/dev/video{i}")
+        if cap.isOpened():
+            found.append({"index": i, "name": f"Camera {i}"})
+        cap.release()
+    return found

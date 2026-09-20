@@ -18,11 +18,10 @@ if (-not (Test-Path $python)) {
     $python = (Get-Command python -ErrorAction Stop).Source
 }
 
-& $python -m pip install -r (Join-Path $ProjectRoot "requirements.txt") -r (Join-Path $ProjectRoot "requirements-web.txt")
+& $python -m pip install -r requirements.txt
 
-# The current Deep-Live-Cam requirements explicitly use ORT GPU 1.26.0 on Windows.
-# Installing it here replaces the user's CPU-only 1.28.0 build without touching PyTorch.
-& $python -m pip install --upgrade "onnxruntime-gpu==1.26.0"
+# requirements.txt already pins onnxruntime-gpu==1.26.0 for this platform,
+# so a separate reinstall step is unnecessary.
 
 # Ensure the web runtime uses the same project root as the repository.
 $env:PYTHONPATH = $ProjectRoot

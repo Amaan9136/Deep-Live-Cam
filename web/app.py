@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import os
 import re
 import shutil
@@ -33,7 +34,7 @@ if os.name == "nt":
                 except OSError:
                     pass
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -44,6 +45,7 @@ import modules.globals as dlc_globals
 import modules.core as dlc_core
 import modules.model_downloader as dlc_models
 import modules.processors.frame.core as dlc_frame_core
+from modules.realtime_camera import SESSION as realtime_session
 WEB_DIR = PROJECT_ROOT / "web"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 TEMP_DIR = PROJECT_ROOT / "temp"
@@ -491,3 +493,57 @@ def output_file(name: str, download: bool = False):
 def output_delete(name: str):
     _output_file(name).unlink()
     return {"deleted": name}
+@app.get("/api/realtime/cameras")
+def realtime_cameras():
+    return {"cameras": realtime_session.cameras()}
+@app.post("/api/realtime/source")
+async def realtime_source(source: UploadFile = File(...)):
+    source_ext = Path(source.filename or "").suffix.lower()
+    if source_ext not in IMAGE_EXTS:
+        raise HTTPException(400, "Source must be a JPG, JPEG, PNG, BMP, or WEBP image.")
+    path = UPLOAD_DIR / f"realtime-source{source_ext}"
+    with path.open("wb") as handle:
+        shutil.copyfileobj(source.file, handle)
+    try:
+        realtime_session.set_source(str(path))
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ready": True}
+@app.post("/api/realtime/start")
+def realtime_start(camera_index: int = Form(...)):
+    try:
+        realtime_session.start(camera_index)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+    return realtime_session.status()
+@app.post("/api/realtime/stop")
+def realtime_stop():
+    realtime_session.stop()
+    return {"stopped": True}
+@app.get("/api/realtime/status")
+def realtime_status():
+    return realtime_session.status()
+@app.get("/api/realtime/stream")
+async def realtime_stream(request: Request):
+    async def frames():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                if not realtime_session.status()["running"]:
+                    await asyncio.sleep(0.2)
+                    continue
+                jpeg = await asyncio.to_thread(realtime_session.latest_jpeg, 1.0)
+                if jpeg is None:
+                    continue
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                    + str(len(jpeg)).encode()
+                    + b"\r\n\r\n"
+                    + jpeg
+                    + b"\r\n"
+                )
+        finally:
+            if await request.is_disconnected():
+                realtime_session.stop()
+    return StreamingResponse(frames(), media_type="multipart/x-mixed-replace; boundary=frame")
