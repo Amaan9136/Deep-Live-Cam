@@ -501,10 +501,13 @@ const rtStatus = $('#rtStatus');
 const rtStats = $('#rtStats');
 const rtStream = $('#rtStream');
 const rtPlaceholder = $('#rtPlaceholder');
+const rtVcamToggle = $('#rtVcamToggle');
+const rtVcamStatus = $('#rtVcamStatus');
 let rtSourceUrl = null;
 let rtSourceReady = false;
 let rtPollTimer = null;
 let rtPushTimer = null;
+let rtVcamOn = false;
 const RT_DEFAULTS = {many: false, poisson: false, enhancer: 'none', opacity: 100, sharpness: 0, mouth: 0, smooth: false, smoothWeight: 0.5, mirror: false, detect: 3, streamWidth: '960', jpeg: 80, resolution: '1920x1080', fps: '30'};
 const RT_PRESETS = {fast: {...RT_DEFAULTS, detect: 4, streamWidth: '640', jpeg: 70, resolution: '1280x720'}, balanced: RT_DEFAULTS, quality: {...RT_DEFAULTS, enhancer: 'gpen256', poisson: true, detect: 2, streamWidth: '1280', jpeg: 90}};
 const rtFields = {many: $('#rtOptMany'), poisson: $('#rtOptPoisson'), enhancer: $('#rtOptEnhancer'), opacity: $('#rtOptOpacity'), sharpness: $('#rtOptSharpness'), mouth: $('#rtOptMouth'), smooth: $('#rtOptSmooth'), smoothWeight: $('#rtOptSmoothWeight'), mirror: $('#rtOptMirror'), detect: $('#rtOptDetect'), streamWidth: $('#rtOptStreamWidth'), jpeg: $('#rtOptJpeg'), resolution: $('#rtOptResolution'), fps: $('#rtOptFps')};
@@ -516,7 +519,7 @@ function readRtOptions(){
 }
 function rtPayload(){
   const o = readRtOptions();
-  return {many_faces: o.many, enhancer: o.enhancer, opacity: o.opacity, sharpness: o.sharpness, mouth_mask_size: o.mouth, poisson_blend: o.poisson, interpolation: o.smooth, interpolation_weight: o.smoothWeight, mirror: o.mirror, detect_every: o.detect, stream_width: o.streamWidth, jpeg_quality: o.jpeg, resolution: o.resolution, capture_fps: o.fps};
+  return {many_faces: o.many, enhancer: o.enhancer, opacity: o.opacity, sharpness: o.sharpness, mouth_mask_size: o.mouth, poisson_blend: o.poisson, interpolation: o.smooth, interpolation_weight: o.smoothWeight, mirror: o.mirror, detect_every: o.detect, stream_width: o.streamWidth, jpeg_quality: o.jpeg, resolution: o.resolution, capture_fps: o.fps, virtual_cam: rtVcamOn};
 }
 function refreshRtOutputs(){
   for(const [key, format] of Object.entries(rtFormats)) $(`#rtOpt${key[0].toUpperCase()}${key.slice(1)}Out`).textContent = format(rtFields[key].value);
@@ -638,6 +641,19 @@ async function loadCameras(){
   }
 }
 $('#rtRefreshCameras').onclick = loadCameras;
+function updateVcamUi(data){
+  const info = data && data.virtual_cam;
+  rtVcamOn = !!(info && info.active);
+  rtVcamToggle.classList.toggle('active', rtVcamOn);
+  rtVcamToggle.textContent = rtVcamOn ? 'Stop Streaming Camera' : 'Use as Streaming Camera';
+  if(rtVcamOn && info.device){
+    rtVcamStatus.textContent = `Live as "${info.device}" — select it as the camera in any browser or app.`;
+    rtVcamStatus.classList.remove('hidden');
+  }else{
+    rtVcamStatus.textContent = '';
+    rtVcamStatus.classList.add('hidden');
+  }
+}
 function stopRtView(){
   clearTimeout(rtPollTimer);
   rtStream.removeAttribute('src');
@@ -645,6 +661,9 @@ function stopRtView(){
   rtPlaceholder.classList.remove('hidden');
   rtStart.classList.remove('hidden');
   rtStop.classList.add('hidden');
+  rtVcamToggle.classList.add('hidden');
+  rtVcamOn = false;
+  updateVcamUi(null);
   rtStats.textContent = '';
 }
 async function pollRtStatus(){
@@ -657,6 +676,7 @@ async function pollRtStatus(){
     }
     rtStatus.textContent = data.error || 'Streaming…';
     rtStats.textContent = data.camera ? `${data.camera.width}×${data.camera.height} · ~${data.fps.toFixed(1)} FPS` : '';
+    updateVcamUi(data);
     rtPollTimer = setTimeout(pollRtStatus, 1000);
   }catch(err){
     rtPollTimer = setTimeout(pollRtStatus, 2000);
@@ -685,6 +705,7 @@ rtStart.onclick = async () => {
     rtPlaceholder.classList.add('hidden');
     rtStart.classList.add('hidden');
     rtStop.classList.remove('hidden');
+    rtVcamToggle.classList.remove('hidden');
     pollRtStatus();
   }catch(err){
     rtStatus.textContent = err.message || 'Could not start the camera.';
@@ -698,6 +719,20 @@ rtStop.onclick = async () => {
   stopRtView();
   rtStatus.textContent = 'Stopped.';
   rtStop.disabled = false;
+};
+rtVcamToggle.onclick = async () => {
+  rtVcamToggle.disabled = true;
+  const next = !rtVcamOn;
+  try{
+    const res = await fetch('/api/realtime/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...rtPayload(), virtual_cam: next})});
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || 'Could not toggle the streaming camera.');
+    updateVcamUi(data);
+  }catch(err){
+    rtStatus.textContent = err.message || 'Could not toggle the streaming camera.';
+  }finally{
+    rtVcamToggle.disabled = false;
+  }
 };
 window.addEventListener('beforeunload', () => {
   if(!rtStop.classList.contains('hidden')) navigator.sendBeacon('/api/realtime/stop');

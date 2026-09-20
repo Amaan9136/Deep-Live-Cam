@@ -521,6 +521,7 @@ def _realtime_options(raw: Any) -> dict[str, Any]:
             "interpolation": bool(data.get("interpolation", False)),
             "interpolation_weight": _clamp(float(data.get("interpolation_weight", 0.5)), 0.05, 0.95),
             "mirror": bool(data.get("mirror", False)),
+            "virtual_cam": bool(data.get("virtual_cam", False)),
             "detect_every": int(_clamp(float(data.get("detect_every", 3)), 1, 10)),
             "stream_width": int(_clamp(float(data.get("stream_width", 960)), 0, 3840)),
             "jpeg_quality": int(_clamp(float(data.get("jpeg_quality", 80)), 40, 100)),

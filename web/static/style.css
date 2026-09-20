@@ -52,6 +52,7 @@ button.badge.warn { border-color: #8a6a2b; color: #e6c98a; }
 .link:hover { color: #fff; }
 .ghost { border: 1px solid #30384a; background: transparent; color: #dbe1ec; border-radius: 9px; padding: 7px 12px; font-size: 12px; cursor: pointer; font-family: inherit; }
 .ghost:hover { background: #181e2b; }
+.ghost.active { background: #2a4a2f; border-color: #3f7a49; color: #d7ffdd; }
 .options { margin-top: 22px; border: 1px solid #252b39; border-radius: 14px; background: #0c1017; padding: 0 16px; }
 .options>summary, .manual>summary, .log>summary { cursor: pointer; padding: 14px 0; font-size: 13px; font-weight: 650; color: #dbe1ec; }
 .presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 12px; color: #8f99aa; }

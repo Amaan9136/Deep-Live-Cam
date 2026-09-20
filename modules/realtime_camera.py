@@ -43,6 +43,7 @@ DEFAULT_OPTIONS = {
     "capture_width": CAPTURE_WIDTH,
     "capture_height": CAPTURE_HEIGHT,
     "capture_fps": CAPTURE_FPS,
+    "virtual_cam": False,
 }
 class RealtimeCameraSession:
     """Owns the capture thread, worker thread, and shared state for the
@@ -69,6 +70,8 @@ class RealtimeCameraSession:
         self._fps = 0.0
         self._options: dict[str, Any] = dict(DEFAULT_OPTIONS)
         self._mirrored = False
+        self._vcam: Any = None
+        self._vcam_failed = False
     def set_source(self, path: str) -> None:
         """Read and analyse the source image once, caching it by path."""
         with self._lock:
@@ -92,6 +95,34 @@ class RealtimeCameraSession:
     @staticmethod
     def _enhancer(name: str) -> Any:
         return importlib.import_module(f"modules.processors.frame.{ENHANCER_MODULES[name]}")
+    def _ensure_vcam(self) -> Any:
+        if self._vcam_failed:
+            return None
+        if self._vcam is not None:
+            return self._vcam
+        try:
+            import pyvirtualcam
+            capturer = self._capturer
+            fps = round(capturer.actual_fps) if capturer and capturer.actual_fps else self._options["capture_fps"]
+            self._vcam = pyvirtualcam.Camera(
+                width=capturer.actual_width,
+                height=capturer.actual_height,
+                fps=max(1, fps),
+                print_fps=False,
+            )
+        except Exception as exc:
+            self._vcam_failed = True
+            self._error = f"Virtual camera unavailable: {exc}"
+            return None
+        return self._vcam
+    def _close_vcam(self) -> None:
+        if self._vcam is not None:
+            try:
+                self._vcam.close()
+            except Exception:
+                pass
+            self._vcam = None
+        self._vcam_failed = False
     def configure(self, options: dict) -> None:
         merged = {**DEFAULT_OPTIONS, **options}
         if merged["enhancer"] != "none":
@@ -164,6 +195,7 @@ class RealtimeCameraSession:
         self._capturer = None
         self._capture_thread = None
         self._worker_thread = None
+        self._close_vcam()
         self._drain_queue()
         self._cached_face = None
         with self._frame_cond:
@@ -185,6 +217,10 @@ class RealtimeCameraSession:
             "camera": camera,
             "fps": round(self._fps, 1),
             "error": self._error,
+            "virtual_cam": {
+                "active": self._vcam is not None,
+                "device": getattr(self._vcam, "device", None),
+            },
         }
     def latest_jpeg(self, after_version: int = 0, timeout: float = 1.0) -> Tuple[Optional[bytes], int]:
         with self._frame_cond:
@@ -259,6 +295,16 @@ class RealtimeCameraSession:
                     )
                 except Exception as exc:
                     self._error = str(exc)
+            if options["virtual_cam"]:
+                vcam = self._ensure_vcam()
+                if vcam is not None:
+                    try:
+                        vcam.send(cv2.cvtColor(processed, cv2.COLOR_BGR2RGB))
+                        vcam.sleep_until_next_frame()
+                    except Exception as exc:
+                        self._error = str(exc)
+            else:
+                self._close_vcam()
             if options["stream_width"] and processed.shape[1] > options["stream_width"]:
                 scale = options["stream_width"] / processed.shape[1]
                 processed = cv2.resize(

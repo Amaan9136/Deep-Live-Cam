@@ -38,9 +38,6 @@ if (-not $python) {
 
 & $python -m pip install -r requirements.txt
 
-# requirements.txt already pins onnxruntime-gpu==1.26.0 for this platform,
-# so a separate reinstall step is unnecessary.
-
 # Ensure the web runtime uses the same project root as the repository.
 $env:PYTHONPATH = $ProjectRoot
 Write-Host "Starting LOCAL FACE SWAPPER at http://127.0.0.1:8000" -ForegroundColor Green

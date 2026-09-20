@@ -14,6 +14,9 @@ Everything runs locally on the Windows PC.
 Use the existing `trainer` Conda environment:
     conda activate trainer
     & .\start_web.ps1
+or
+    conda activate trainer
+    python run_web.py
 Then open:
     http://127.0.0.1:8000
 ## Repository
