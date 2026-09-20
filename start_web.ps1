@@ -13,8 +13,26 @@ if (-not (Test-Path (Join-Path $ProjectRoot "modules"))) {
     Remove-Item -Recurse -Force $stage
 }
 
-$python = "C:\Users\Amaan M k\.conda\envs\trainer\python.exe"
-if (-not (Test-Path $python)) {
+$python = $null
+
+if ($env:CONDA_DEFAULT_ENV -eq "trainer" -and $env:CONDA_PREFIX) {
+    $candidate = Join-Path $env:CONDA_PREFIX "python.exe"
+    if (Test-Path $candidate) { $python = $candidate }
+}
+
+if (-not $python) {
+    $condaExe = Get-Command conda -ErrorAction SilentlyContinue
+    if ($condaExe) {
+        $envInfo = & conda env list | Select-String "^trainer\s"
+        if ($envInfo) {
+            $envPath = ($envInfo -split "\s+")[-1]
+            $candidate = Join-Path $envPath "python.exe"
+            if (Test-Path $candidate) { $python = $candidate }
+        }
+    }
+}
+
+if (-not $python) {
     $python = (Get-Command python -ErrorAction Stop).Source
 }
 

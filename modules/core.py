@@ -208,9 +208,6 @@ def pre_check() -> bool:
 
 def update_status(message: str, scope: str = 'DLC.CORE') -> None:
     print(f'[{scope}] {message}')
-    if not modules.globals.headless:
-        import modules.ui as ui
-        ui.update_status(message)
 
 def start() -> None:
     """Start processing with performance monitoring."""
@@ -225,10 +222,6 @@ def start() -> None:
     
     # process image to image
     if has_image_extension(modules.globals.target_path):
-        if modules.globals.nsfw_filter:
-            import modules.ui as ui
-            if ui.check_and_ignore_nsfw(modules.globals.target_path, destroy):
-                return
         try:
             shutil.copy2(modules.globals.target_path, modules.globals.output_path)
         except Exception as e:
@@ -244,12 +237,6 @@ def start() -> None:
             update_status('Processing to image failed!')
         return
     
-    # process image to videos
-    if modules.globals.nsfw_filter:
-        import modules.ui as ui
-        if ui.check_and_ignore_nsfw(modules.globals.target_path, destroy):
-            return
-
     # Detect FPS early (needed by both pipelines)
     if modules.globals.keep_fps:
         update_status('Detecting fps...')
@@ -352,9 +339,4 @@ def run() -> None:
     #from modules.face_analyser import get_face_analyser
     #get_face_analyser()
     limit_resources()
-    if modules.globals.headless:
-        start()
-    else:
-        import modules.ui as ui
-        window = ui.init(start, destroy, modules.globals.lang)
-        window.mainloop()
+    start()

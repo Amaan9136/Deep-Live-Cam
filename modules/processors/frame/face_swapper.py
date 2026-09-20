@@ -17,7 +17,7 @@ from modules.utilities import (
 )
 from modules.cluster_analysis import find_closest_centroid
 from modules.gpu_processing import gpu_gaussian_blur, gpu_sharpen, gpu_add_weighted, gpu_resize
-from modules.platform_info import OPENVINO_PROVIDER_CONFIG
+from modules.platform_info import OPENVINO_PROVIDER_CONFIG, HAS_CUDA_PROVIDER
 import os
 from collections import deque
 import time
@@ -204,7 +204,7 @@ def pre_check() -> bool:
     from modules.model_downloader import ensure_any
 
     variants = ["inswapper_128.onnx", "inswapper_128_fp16.onnx"]
-    if _HAS_TORCH_CUDA:
+    if HAS_CUDA_PROVIDER:
         variants.reverse()
     if ensure_any(variants) is None:
         update_status(
@@ -242,7 +242,7 @@ def get_face_swapper() -> Any:
             # older GPUs (e.g. GTX 16xx) where FP16 can produce NaN.
             fp32_path = os.path.join(models_dir, "inswapper_128.onnx")
             fp16_path = os.path.join(models_dir, "inswapper_128_fp16.onnx")
-            use_fp16 = _HAS_TORCH_CUDA and os.path.exists(fp16_path)
+            use_fp16 = HAS_CUDA_PROVIDER and os.path.exists(fp16_path)
             if use_fp16:
                 model_path = fp16_path
             elif os.path.exists(fp32_path):
@@ -290,7 +290,7 @@ def get_face_swapper() -> Any:
                     providers=providers_config,
                 )
                 # Set up CUDA graph session for faster inference
-                if _HAS_TORCH_CUDA and any(
+                if HAS_CUDA_PROVIDER and any(
                     p == "CUDAExecutionProvider" or
                     (isinstance(p, tuple) and p[0] == "CUDAExecutionProvider")
                     for p in providers_config

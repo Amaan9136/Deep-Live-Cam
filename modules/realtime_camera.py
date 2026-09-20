@@ -12,7 +12,7 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import cv2
 
@@ -47,7 +47,8 @@ class RealtimeCameraSession:
         self._stop_event = threading.Event()
         self._frame_queue: "queue.Queue" = queue.Queue(maxsize=1)
         self._latest_jpeg: Optional[bytes] = None
-        self._frame_ready = threading.Event()
+        self._frame_cond = threading.Condition()
+        self._frame_version = 0
         self._running = False
         self._camera_index: Optional[int] = None
         self._error: Optional[str] = None
@@ -120,8 +121,9 @@ class RealtimeCameraSession:
             self._error = None
             self._stop_event.clear()
             self._drain_queue()
-            self._latest_jpeg = None
-            self._frame_ready.clear()
+            with self._frame_cond:
+                self._latest_jpeg = None
+                self._frame_version = 0
             self._running = True
             self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
             self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
@@ -145,8 +147,10 @@ class RealtimeCameraSession:
         self._worker_thread = None
         self._drain_queue()
         self._cached_face = None
-        self._latest_jpeg = None
-        self._frame_ready.clear()
+        with self._frame_cond:
+            self._latest_jpeg = None
+            self._frame_version += 1
+            self._frame_cond.notify_all()
 
     def status(self) -> dict:
         camera = None
@@ -165,10 +169,11 @@ class RealtimeCameraSession:
             "error": self._error,
         }
 
-    def latest_jpeg(self, timeout: float = 1.0) -> Optional[bytes]:
-        if self._frame_ready.wait(timeout):
-            return self._latest_jpeg
-        return None
+    def latest_jpeg(self, after_version: int = 0, timeout: float = 1.0) -> Tuple[Optional[bytes], int]:
+        with self._frame_cond:
+            if self._frame_version == after_version:
+                self._frame_cond.wait(timeout)
+            return self._latest_jpeg, self._frame_version
 
     def _drain_queue(self) -> None:
         while not self._frame_queue.empty():
@@ -187,6 +192,8 @@ class RealtimeCameraSession:
                 if failures > MAX_READ_FAILURES:
                     self._error = "Camera disconnected."
                     self._stop_event.set()
+                    with self._frame_cond:
+                        self._frame_cond.notify_all()
                     break
                 time.sleep(0.01)
                 continue
@@ -237,8 +244,10 @@ class RealtimeCameraSession:
 
             ok, encoded = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
             if ok:
-                self._latest_jpeg = encoded.tobytes()
-                self._frame_ready.set()
+                with self._frame_cond:
+                    self._latest_jpeg = encoded.tobytes()
+                    self._frame_version += 1
+                    self._frame_cond.notify_all()
 
             now = time.time()
             self._fps_times.append(now)

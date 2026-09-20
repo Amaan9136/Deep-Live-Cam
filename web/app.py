@@ -162,12 +162,8 @@ def _configure_dlc(source: Path, target: Path, output: Path, options: dict[str, 
     dlc_globals.interpolation_weight = options["interpolation_weight"] if options["interpolation"] else 0.0
     for key in ("face_enhancer", "face_enhancer_gpen256", "face_enhancer_gpen512"):
         dlc_globals.fp_ui[key] = ENHANCERS.get(options["enhancer"]) == key
-def _torch_cuda() -> bool:
-    try:
-        import torch
-        return bool(torch.cuda.is_available())
-    except Exception:
-        return False
+def _cuda_provider_available() -> bool:
+    return "CUDAExecutionProvider" in ort.get_available_providers()
 def _fetch(entry: dict[str, Any], job_id: str | None = None) -> bool:
     name = entry["name"]
     dest = entry.get("dir")
@@ -202,7 +198,7 @@ def _download_many(entries: list[dict[str, Any]]) -> None:
         _fetch(entry)
 def _prepare_models(job_id: str, options: dict[str, Any]) -> None:
     swappers = [CATALOG[name] for name in SWAPPER_FILES]
-    if not _torch_cuda():
+    if not _cuda_provider_available():
         swappers.reverse()
     if not any(_present(entry) for entry in swappers):
         for entry in swappers:
@@ -526,6 +522,7 @@ def realtime_status():
 @app.get("/api/realtime/stream")
 async def realtime_stream(request: Request):
     async def frames():
+        version = 0
         try:
             while True:
                 if await request.is_disconnected():
@@ -533,7 +530,7 @@ async def realtime_stream(request: Request):
                 if not realtime_session.status()["running"]:
                     await asyncio.sleep(0.2)
                     continue
-                jpeg = await asyncio.to_thread(realtime_session.latest_jpeg, 1.0)
+                jpeg, version = await asyncio.to_thread(realtime_session.latest_jpeg, version, 1.0)
                 if jpeg is None:
                     continue
                 yield (
