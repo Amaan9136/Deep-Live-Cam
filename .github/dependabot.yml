@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # requirements.txt pins numpy, opencv, onnx/onnxruntime(-gpu), insightface,
+  # pillow, fastapi, uvicorn, etc. Dependabot opens a PR when a newer version
+  # is available (or a security advisory affects a pinned version), so these
+  # stay current without manual version-hunting.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+
+  # .github/workflows/*.yml reference third-party Actions (e.g.
+  # actions/checkout, actions/setup-python) by version tag. Dependabot keeps
+  # those pinned versions current, which is also how GitHub recommends
+  # picking up Actions security fixes.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
