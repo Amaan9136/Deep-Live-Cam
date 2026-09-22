@@ -1,0 +1,90 @@
+name: 🐛 Bug Report
+description: Report something that isn't working as expected
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill out as much of this as you can, it
+        makes it much faster to reproduce and fix.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the bug.
+      placeholder: When I click "Start" on the Realtime tab, the stream never loads...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The minimal steps needed to trigger the bug.
+      placeholder: |
+        1. Start the server with `python run_web.py`
+        2. Upload a source face on the Image tab
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the app is affected?
+      options:
+        - Image → Image swap
+        - Image → Video swap
+        - Realtime webcam streaming
+        - Model download / management
+        - Web UI (browser)
+        - Installation / setup
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / error output
+      description: Paste any terminal output, stack traces, or browser console errors.
+      render: shell
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11 / Ubuntu 22.04 / macOS 14
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU (if applicable)
+      placeholder: NVIDIA RTX 3050 4GB / CPU only / Apple Silicon
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.10"
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I've searched existing [issues](https://github.com/Amaan9136/faceswap-live/issues) and this hasn't been reported yet
+          required: true
+        - label: This is about the web/streaming layer in this repo, not the core upstream engine
+          required: false

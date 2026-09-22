@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Questions & Discussion
+    url: https://github.com/Amaan9136/faceswap-live/discussions
+    about: Ask questions or discuss ideas before filing an issue
+  - name: 📖 Upstream Deep-Live-Cam
+    url: https://github.com/hacksider/Deep-Live-Cam
+    about: For issues in the core face-swap engine itself, not the web/streaming layer
