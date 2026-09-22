@@ -21,7 +21,7 @@ image swap, video swap, and real-time webcam face swapping, running entirely on 
 ## Why this project exists
 
 [Deep-Live-Cam](https://github.com/hacksider/Deep-Live-Cam) is a powerful real-time face-swap engine, but it's
-built around a desktop GUI and a Python entrypoint. **faceswap-live wraps that engine in a FastAPI web app**, so
+built around a desktop GUI and a Python entrypoint. **[faceswap-live](https://github.com/Amaan9136/faceswap-live) wraps that engine in a FastAPI web app**, so
 you can drive it from any browser on your own machine — no Docker, no cloud upload, no account. You open a tab,
 pick a source face, and go.
 
